@@ -3064,6 +3064,7 @@ async function resetTodayRoutine(){
 
 function renderRotina(){
   if(rotinaView === 'puzzle'){ renderItemPuzzle(); return; }
+  if(rotinaView === 'reacao'){ renderItemReactionStep(); return; }
   if(rotinaView === 'emocao'){ renderEmocaoStep(); return; }
 
   document.getElementById('subheader').textContent = 'Vamos ver a sua rotina de hoje?';
@@ -3367,9 +3368,9 @@ function showWinModal(dayComplete){
     speak('Parabéns! Você terminou toda a sua rotina! Qual foi sua emoção hoje?');
   }else{
     msg.textContent = 'Você montou o quebra-cabeça! Ganhou mais uma estrela ⭐';
-    btn.textContent = 'Continuar jogando';
-    btn.onclick = hideWinModal;
-    speak('Parabéns! Você conseguiu!');
+    btn.textContent = '🙂 Qual sua reação agora?';
+    btn.onclick = ()=>{ hideWinModal(); rotinaView = 'reacao'; renderItemReactionStep(); };
+    speak('Parabéns! Você conseguiu! Qual foi sua reação agora?');
   }
   modal.classList.add('show');
   parseEmoji();
@@ -3442,6 +3443,41 @@ const EMOTIONS = [
   {id:'animado', label:'Animado(a)', emoji:'🤩'},
 ];
 
+async function saveItemReaction(itemId, emo){
+  const dateKey = todayKey();
+  const entry = { date: dateKey, itemId, emotionEmoji: emo.emoji, emotionLabel: emo.label };
+  await store.set('reacao-item:' + itemId + ':' + dateKey, JSON.stringify(entry));
+}
+
+function renderItemReactionStep(){
+  const item = findItemById(activeItemId);
+  document.getElementById('subheader').textContent = 'Qual sua reação agora?';
+  setMascotMood(null);
+  const cardArea = document.getElementById('cardArea');
+  cardArea.innerHTML = `
+    <h2 class="step-title">Qual sua reação agora? 🙂</h2>
+    <p class="step-sub">${item ? `Como você se sentiu fazendo "${item.name}"?` : 'Toque na carinha que combina'}</p>
+    <div class="grid" id="reacaoGrid"></div>
+  `;
+  const grid = document.getElementById('reacaoGrid');
+  EMOTIONS.forEach(e=>{
+    const div = document.createElement('div');
+    div.className = 'opt';
+    div.innerHTML = `<span class="emoji">${e.emoji}</span><span>${e.label}</span>`;
+    div.onclick = async ()=>{
+      playClickSound();
+      setMascotMood(e.id);
+      await saveItemReaction(activeItemId, e);
+      speak(`Você se sentiu ${e.label.toLowerCase()}!`);
+      rotinaView = 'lista';
+      activeItemId = null;
+      renderRotina();
+    };
+    grid.appendChild(div);
+  });
+  parseEmoji();
+}
+
 async function saveEmoEntry(emo){
   const today = new Date();
   const dateKey = today.toISOString().slice(0,10);
@@ -3506,10 +3542,13 @@ async function renderTrofeus(){
   document.getElementById('subheader').textContent = 'Suas conquistas até agora';
   setMascotMood('animado');
   const diasCompletosKeys = await store.list('rotina-premiada:');
+  const reacoesKeys = await store.list('reacao-item:');
+  const emocoesKeys = await store.list('emo-entry:');
+  const totalTarefas = allItemsFlat().length;
   const cardArea = document.getElementById('cardArea');
   cardArea.innerHTML = `
     <h2 class="step-title">Troféus 🏆</h2>
-    <p class="step-sub">Cada estrela é uma conquista sua!</p>
+    <p class="step-sub">Cada conquista é um passo seu!</p>
     <div class="stat-card">
       <span class="ic">⭐</span>
       <div><div class="num">${starTotal}</div><div class="lbl">Estrelas conquistadas</div></div>
@@ -3521,6 +3560,18 @@ async function renderTrofeus(){
     <div class="stat-card">
       <span class="ic">🧩</span>
       <div><div class="num">${puzzlesSolvedTotal}</div><div class="lbl">Quebra-cabeças resolvidos</div></div>
+    </div>
+    <div class="stat-card">
+      <span class="ic">🙂</span>
+      <div><div class="num">${reacoesKeys.length}</div><div class="lbl">Reações registradas</div></div>
+    </div>
+    <div class="stat-card">
+      <span class="ic">🌈</span>
+      <div><div class="num">${emocoesKeys.length}</div><div class="lbl">Emoções do dia registradas</div></div>
+    </div>
+    <div class="stat-card">
+      <span class="ic">📅</span>
+      <div><div class="num">${totalTarefas}</div><div class="lbl">Tarefas na rotina de cada dia</div></div>
     </div>
   `;
   parseEmoji();
