@@ -227,11 +227,11 @@
   .tabbar-inner{ width:100%; max-width:520px; display:flex; }
   .tab{
     flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
-    padding:10px 2px 12px; background:none; border:none; cursor:pointer;
-    font-family:'Quicksand', sans-serif; font-weight:700; font-size:0.6rem; line-height:1.05;
+    padding:10px 4px 12px; background:none; border:none; cursor:pointer;
+    font-family:'Quicksand', sans-serif; font-weight:700; font-size:0.72rem; line-height:1.05;
     color:#B3AECF; text-align:center;
   }
-  .tab .ic{ font-size:1.15rem; }
+  .tab .ic{ font-size:1.3rem; }
   .tab.active{ color:var(--coral); }
 
   /* PUZZLE */
@@ -384,8 +384,6 @@
 <div class="tabbar" id="tabbar">
   <div class="tabbar-inner">
     <button class="tab active" data-tab="rotina"><span class="ic">🏠</span><span>Rotina</span></button>
-    <button class="tab" data-tab="quebra"><span class="ic">🧩</span><span>Quebra-cabeça</span></button>
-    <button class="tab" data-tab="emocao"><span class="ic">🙂</span><span>Emoção</span></button>
     <button class="tab" data-tab="trofeus"><span class="ic">🏆</span><span>Troféus</span></button>
     <button class="tab" data-tab="perfil"><span class="ic">👤</span><span>Perfil</span></button>
   </div>
@@ -2787,7 +2785,7 @@ async function cloudSyncProfile(){
       mae: profileExtra.mae,
       estrelas_total: starTotal,
       quebra_grid: gridSize,
-      quebra_imagem: puzzleImg,
+      quebra_imagem: JSON.stringify(itemPuzzleImages),
       quebra_resolvidos_total: puzzlesSolvedTotal,
       atualizado_em: new Date().toISOString(),
     });
@@ -2871,6 +2869,33 @@ function playSuccessSound(){
 }
 function playStartSound(){
   [392, 587.33].forEach((f,i)=> playTone(f, i*0.09, 0.2, 'triangle', 0.13));
+}
+
+/* ---------- voz (por enquanto sintetizada pelo navegador; no futuro troca
+   por gravações de verdade da Fernanda, sem mudar quem chama speak()) ---------- */
+let ttsVoice = null;
+function pickTtsVoice(){
+  if(!window.speechSynthesis) return;
+  const voices = speechSynthesis.getVoices();
+  ttsVoice = voices.find(v => /pt(-|_)?br/i.test(v.lang) && /female|mulher|maria|luciana|joana|francisca/i.test(v.name))
+    || voices.find(v => /^pt/i.test(v.lang))
+    || null;
+}
+if(window.speechSynthesis){
+  pickTtsVoice();
+  speechSynthesis.onvoiceschanged = pickTtsVoice;
+}
+function speak(text){
+  if(!window.speechSynthesis || !text) return;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'pt-BR';
+    if(ttsVoice) u.voice = ttsVoice;
+    u.rate = 1;
+    u.pitch = 1.6;
+    speechSynthesis.speak(u);
+  }catch(e){}
 }
 
 /* ---------- PERFIL (nome) ---------- */
@@ -2968,6 +2993,8 @@ const ROUTINE = [
 
 let done = {}; // id -> bool, for today
 let activePeriod = null; // 'manha' | 'tarde' | 'noite'
+let rotinaView = 'lista'; // 'lista' | 'puzzle' | 'emocao'
+let activeItemId = null;
 
 async function loadRotinaState(){
   const raw = await store.get('rotina:' + todayKey());
@@ -3003,9 +3030,9 @@ function pickDefaultPeriod(){
   return ROUTINE[ROUTINE.length-1].period;
 }
 
-async function toggleItem(id){
-  done[id] = !done[id];
-  playClickSound();
+async function completeItem(id){
+  if(done[id]) return;
+  done[id] = true;
   await saveDone();
 
   const all = allItemsFlat();
@@ -3018,7 +3045,6 @@ async function toggleItem(id){
       await store.set(awardedKey, '1');
     }
   }
-  renderRotina();
 }
 
 async function resetTodayRoutine(){
@@ -3026,9 +3052,14 @@ async function resetTodayRoutine(){
   await store.remove('rotina-premiada:' + todayKey());
   await saveDone();
   activePeriod = 'manha';
+  rotinaView = 'lista';
+  activeItemId = null;
 }
 
 function renderRotina(){
+  if(rotinaView === 'puzzle'){ renderItemPuzzle(); return; }
+  if(rotinaView === 'emocao'){ renderEmocaoStep(); return; }
+
   document.getElementById('subheader').textContent = 'Vamos ver a sua rotina de hoje?';
   setMascotMood(null);
 
@@ -3047,7 +3078,7 @@ function renderRotina(){
 
   let html = `
     <h2 class="step-title">Minha rotina de hoje 📅</h2>
-    <p class="step-sub">Toque em cada tarefa quando terminar</p>
+    <p class="step-sub">Toque em cada tarefa e monte o quebra-cabeça</p>
     <div class="overall">
       <div class="overall-track"><div class="overall-fill" style="width:${pct}%"></div></div>
       <div class="overall-label">${doneCount}/${all.length}</div>
@@ -3068,7 +3099,7 @@ function renderRotina(){
           <div class="name">${item.name}</div>
           <div class="time">🕐 ${item.time}</div>
         </div>
-        <div class="check">${isDone ? '✓' : ''}</div>
+        <div class="check">${isDone ? '✓' : '🧩'}</div>
       </div>`;
   });
 
@@ -3079,8 +3110,9 @@ function renderRotina(){
   if(complete){
     html += `
       <div class="praise-banner">
-        🎉 Rotina completa! Você ganhou uma estrela para o quebra-cabeça!
-        <div style="margin-top:10px;"><button class="btn btn-ghost" id="replayBtn" style="width:100%">🔄 Fazer de novo</button></div>
+        🎉 Rotina completa! Você ganhou uma estrela!
+        <div style="margin-top:10px;"><button class="btn btn-primary" id="feelingsBtn" style="width:100%">🙂 Como foi seu dia?</button></div>
+        <div style="margin-top:8px;"><button class="btn btn-ghost" id="replayBtn" style="width:100%">🔄 Fazer de novo</button></div>
       </div>`;
   }
 
@@ -3099,10 +3131,12 @@ function renderRotina(){
   });
 
   cardArea.querySelectorAll('.item').forEach(el=>{
-    el.onclick = () => toggleItem(el.dataset.id);
+    el.onclick = () => openItemPuzzle(el.dataset.id);
   });
   const replayBtn = document.getElementById('replayBtn');
   if(replayBtn) replayBtn.onclick = async ()=>{ await resetTodayRoutine(); renderRotina(); };
+  const feelingsBtn = document.getElementById('feelingsBtn');
+  if(feelingsBtn) feelingsBtn.onclick = ()=>{ rotinaView = 'emocao'; renderEmocaoStep(); };
   parseEmoji();
 }
 
@@ -3151,17 +3185,34 @@ const DEFAULT_IMG = "data:image/svg+xml;utf8," + encodeURIComponent(`
   <circle cx='260' cy='250' r='4' fill='#FFFFFF'/>
 </svg>`);
 
-let puzzleImg = DEFAULT_IMG;
+let itemPuzzleImages = {}; // { [itemId]: dataUrl }
 let gridSize = 2; // 2 = facil, 3 = medio
 let order = []; // order[slot] = correct-tile-index that currently sits in that slot
 let pickedSlot = null;
 let solved = false;
 
+function findItemById(id){
+  for(const period of ROUTINE){
+    const item = period.items.find(i => i.id === id);
+    if(item) return item;
+  }
+  return null;
+}
+
+function getItemImage(id){
+  return itemPuzzleImages[id] || DEFAULT_IMG;
+}
+
 async function loadPuzzleState(){
-  const savedImg = await store.get('quebra:imagem');
-  if(savedImg) puzzleImg = savedImg;
+  const savedImages = await store.get('quebra:imagens-por-item');
+  if(savedImages){ try{ itemPuzzleImages = JSON.parse(savedImages); }catch(e){} }
   const savedGrid = await store.get('quebra:grid');
   if(savedGrid) gridSize = parseInt(savedGrid, 10) || 2;
+}
+
+async function saveItemImages(){
+  await store.set('quebra:imagens-por-item', JSON.stringify(itemPuzzleImages));
+  cloudSyncProfile();
 }
 
 function shuffle(arr){
@@ -3179,12 +3230,25 @@ function isSolved(arr){
   return arr.every((v,i)=>v===i);
 }
 
+function openItemPuzzle(id){
+  const item = findItemById(id);
+  if(!item) return;
+  activeItemId = id;
+  rotinaView = 'puzzle';
+  pickedSlot = null;
+  solved = !!done[id];
+  const n = gridSize*gridSize;
+  order = solved ? [...Array(n).keys()] : shuffle([...Array(n).keys()]);
+  renderItemPuzzle();
+  speak(`Vamos montar o quebra-cabeça de ${item.name}!`);
+}
+
 function newPuzzle(){
   const n = gridSize*gridSize;
   order = shuffle([...Array(n).keys()]);
   pickedSlot = null;
   solved = false;
-  renderQuebra();
+  renderItemPuzzle();
 }
 
 async function chooseDifficulty(size){
@@ -3219,12 +3283,11 @@ function resizeImageToDataUrl(file){
 }
 
 async function onPhotoChosen(file){
-  if(!file) return;
+  if(!file || !activeItemId) return;
   try{
     const dataUrl = await resizeImageToDataUrl(file);
-    puzzleImg = dataUrl;
-    await store.set('quebra:imagem', dataUrl);
-    cloudSyncProfile();
+    itemPuzzleImages[activeItemId] = dataUrl;
+    await saveItemImages();
     newPuzzle();
   }catch(err){
     console.error('Erro ao carregar foto', err);
@@ -3236,12 +3299,12 @@ async function pickTile(slot){
   playClickSound();
   if(pickedSlot === null){
     pickedSlot = slot;
-    renderQuebra();
+    renderItemPuzzle();
     return;
   }
   if(pickedSlot === slot){
     pickedSlot = null;
-    renderQuebra();
+    renderItemPuzzle();
     return;
   }
   const tmp = order[pickedSlot];
@@ -3251,16 +3314,21 @@ async function pickTile(slot){
 
   if(isSolved(order)){
     solved = true;
-    await addStar();
-    puzzlesSolvedTotal += 1;
-    await store.set('quebra:resolvidos:total', String(puzzlesSolvedTotal));
-    cloudSyncProfile();
-    renderQuebra();
+    const wasAlreadyDone = !!done[activeItemId];
+    if(!wasAlreadyDone){
+      await completeItem(activeItemId);
+      await addStar();
+      puzzlesSolvedTotal += 1;
+      await store.set('quebra:resolvidos:total', String(puzzlesSolvedTotal));
+      cloudSyncProfile();
+    }
+    renderItemPuzzle();
     triggerConfetti();
     showWinModal();
+    speak('Parabéns! Você conseguiu!');
     return;
   }
-  renderQuebra();
+  renderItemPuzzle();
 }
 
 function triggerConfetti(){
@@ -3285,13 +3353,20 @@ function showWinModal(){ document.getElementById('winModal').classList.add('show
 function hideWinModal(){ document.getElementById('winModal').classList.remove('show'); }
 document.getElementById('modalCloseBtn').onclick = hideWinModal;
 
-function renderQuebra(){
-  document.getElementById('subheader').textContent = 'Vamos montar o quebra-cabeça?';
+function renderItemPuzzle(){
+  const item = findItemById(activeItemId);
+  if(!item){ rotinaView = 'lista'; renderRotina(); return; }
+  document.getElementById('subheader').textContent = solved ? 'Você já completou essa tarefa!' : 'Vamos montar o quebra-cabeça?';
   setMascotMood(null);
+  const img = getItemImage(activeItemId);
 
   let html = `
-    <h2 class="step-title">Quebra-cabeça 🧩</h2>
-    <p class="step-sub">Toque em duas peças para trocar de lugar</p>
+    <div class="nav" style="margin-top:0; margin-bottom:10px;">
+      <button class="btn btn-ghost" id="backToListBtn">⟲ Voltar</button>
+      <span></span>
+    </div>
+    <h2 class="step-title">${item.icon} ${item.name}</h2>
+    <p class="step-sub">${solved ? '✅ Já feito! Pode jogar de novo se quiser.' : 'Toque em duas peças para trocar de lugar'}</p>
     <div class="diff-toggle">
       <button class="diff-btn ${gridSize===2?'active':''}" id="diffEasy">Fácil (2x2)</button>
       <button class="diff-btn ${gridSize===3?'active':''}" id="diffMed">Médio (3x3)</button>
@@ -3301,7 +3376,7 @@ function renderQuebra(){
     </div>
     <div class="puzzle-actions">
       <button class="btn btn-ghost" id="reshuffleBtn">🔀 Embaralhar</button>
-      <button class="btn btn-primary" id="photoBtn">📷 Escolher foto</button>
+      <button class="btn btn-primary" id="photoBtn">📷 Escolher foto de ${item.name}</button>
     </div>
     <input type="file" id="photoInput" accept="image/*">
   `;
@@ -3315,7 +3390,7 @@ function renderQuebra(){
     const row = Math.floor(correctIdx / gridSize);
     const div = document.createElement('div');
     div.className = 'tile' + (slot===pickedSlot ? ' picked':'') + (solved ? ' solved-flash':'');
-    div.style.backgroundImage = `url(${puzzleImg})`;
+    div.style.backgroundImage = `url(${img})`;
     div.style.backgroundSize = `${gridSize*100}% ${gridSize*100}%`;
     div.style.backgroundPosition = `${(col*100)/(gridSize-1 || 1)}% ${(row*100)/(gridSize-1 || 1)}%`;
     div.setAttribute('aria-label', 'Peça do quebra-cabeça');
@@ -3323,6 +3398,7 @@ function renderQuebra(){
     grid.appendChild(div);
   });
 
+  document.getElementById('backToListBtn').onclick = ()=>{ rotinaView = 'lista'; activeItemId = null; renderRotina(); };
   document.getElementById('diffEasy').onclick = ()=> chooseDifficulty(2);
   document.getElementById('diffMed').onclick = ()=> chooseDifficulty(3);
   document.getElementById('reshuffleBtn').onclick = ()=> newPuzzle();
@@ -3331,7 +3407,7 @@ function renderQuebra(){
   parseEmoji();
 }
 
-/* ---------- EMOÇÃO ---------- */
+/* ---------- EMOÇÃO (passo final do dia) ---------- */
 const EMOTIONS = [
   {id:'feliz', label:'Feliz', emoji:'😄'},
   {id:'triste', label:'Triste', emoji:'😢'},
@@ -3342,220 +3418,64 @@ const EMOTIONS = [
   {id:'vergonha', label:'Envergonhado(a)', emoji:'😳'},
   {id:'animado', label:'Animado(a)', emoji:'🤩'},
 ];
-const REACTIONS = [
-  {emoji:'😭', label:'Chorei'},
-  {emoji:'📣', label:'Gritei'},
-  {emoji:'🙈', label:'Me escondi'},
-  {emoji:'🗣️', label:'Conversei sobre isso'},
-  {emoji:'😆', label:'Ri bastante'},
-  {emoji:'🤗', label:'Abracei alguém'},
-  {emoji:'🤐', label:'Fiquei quieto(a)'},
-  {emoji:'👊', label:'Bati o pé / empurrei'},
-];
-const SOLUTIONS = [
-  {emoji:'🌬️', label:'Respirar fundo 3 vezes'},
-  {emoji:'🙋', label:'Pedir ajuda a um adulto'},
-  {emoji:'💬', label:'Falar o que eu senti'},
-  {emoji:'🔢', label:'Contar até 10'},
-  {emoji:'🤗', label:'Pedir um abraço'},
-  {emoji:'🎨', label:'Desenhar o que senti'},
-];
 
-let emoState = { emotion:null, reaction:null, reactionCustom:'', solution:null, solutionCustom:'' };
-let emoStep = 0; // 0 emotion,1 reaction,2 solution,3 summary
-
-function resetEmoState(){
-  emoState = { emotion:null, reaction:null, reactionCustom:'', solution:null, solutionCustom:'' };
-  emoStep = 0;
-}
-
-function emoProgressDots(){
-  let html = '<div class="progress">';
-  for(let i=0;i<4;i++) html += `<span class="dot ${i===emoStep?'active':''}"></span>`;
-  html += '</div>';
-  return html;
-}
-
-function renderEmotionStep(){
-  document.getElementById('subheader').textContent = 'Como você se sentiu hoje?';
-  setMascotMood(emoState.emotion || null);
-  const cardArea = document.getElementById('cardArea');
-  cardArea.innerHTML = emoProgressDots() + `
-    <h2 class="step-title">Escolha a carinha de hoje 🌈</h2>
-    <p class="step-sub">Toque na emoção que mais combina com o seu dia</p>
-    <div class="grid" id="emoGrid"></div>
-    <div class="nav">
-      <span></span>
-      <button class="btn btn-primary" id="nextBtn" ${emoState.emotion?'':'disabled'}>Próximo ➜</button>
-    </div>
-  `;
-  const grid = document.getElementById('emoGrid');
-  EMOTIONS.forEach(e=>{
-    const div = document.createElement('div');
-    div.className = 'opt' + (emoState.emotion===e.id ? ' selected':'');
-    div.innerHTML = `<span class="emoji">${e.emoji}</span><span>${e.label}</span>`;
-    div.onclick = ()=>{ playClickSound(); emoState.emotion = e.id; setMascotMood(e.id); renderEmotionStep(); };
-    grid.appendChild(div);
-  });
-  document.getElementById('nextBtn').onclick = ()=>{ emoStep=1; renderEmocaoStep(); };
-  parseEmoji();
-}
-
-function renderReactionStep(){
-  const emo = EMOTIONS.find(e=>e.id===emoState.emotion);
-  document.getElementById('subheader').textContent = `Você se sentiu ${emo.label.toLowerCase()} ${emo.emoji}`;
-  const cardArea = document.getElementById('cardArea');
-  cardArea.innerHTML = emoProgressDots() + `
-    <h2 class="step-title">O que você fez?</h2>
-    <p class="step-sub">Escolha o que mais combina, ou escreva o seu jeito</p>
-    <div class="grid" id="reactGrid"></div>
-    <textarea id="reactCustom" rows="2" placeholder="Ou escreva com suas palavras...">${emoState.reactionCustom||''}</textarea>
-    <div class="nav">
-      <button class="btn btn-ghost" id="backBtn">⟲ Voltar</button>
-      <button class="btn btn-primary" id="nextBtn">Próximo ➜</button>
-    </div>
-  `;
-  const grid = document.getElementById('reactGrid');
-  REACTIONS.forEach(r=>{
-    const div = document.createElement('div');
-    div.className = 'opt wide' + (emoState.reaction===r.label ? ' selected':'');
-    div.innerHTML = `<span class="emoji">${r.emoji}</span><span>${r.label}</span>`;
-    div.onclick = ()=>{
-      playClickSound();
-      emoState.reaction = r.label;
-      document.getElementById('reactCustom').value='';
-      emoState.reactionCustom='';
-      renderReactionStep();
-    };
-    grid.appendChild(div);
-  });
-  document.getElementById('reactCustom').oninput = (e)=>{
-    emoState.reactionCustom = e.target.value;
-    if(e.target.value.trim()) emoState.reaction = null;
-  };
-  document.getElementById('backBtn').onclick = ()=>{ emoStep=0; renderEmocaoStep(); };
-  document.getElementById('nextBtn').onclick = ()=>{ emoStep=2; renderEmocaoStep(); };
-  parseEmoji();
-}
-
-function renderSolutionStep(){
-  const cardArea = document.getElementById('cardArea');
-  cardArea.innerHTML = emoProgressDots() + `
-    <h2 class="step-title">Da próxima vez...</h2>
-    <p class="step-sub">O que você poderia fazer para resolver melhor?</p>
-    <div class="grid" id="solGrid"></div>
-    <textarea id="solCustom" rows="2" placeholder="Ou escreva sua própria ideia...">${emoState.solutionCustom||''}</textarea>
-    <div class="nav">
-      <button class="btn btn-ghost" id="backBtn">⟲ Voltar</button>
-      <button class="btn btn-primary" id="nextBtn">Ver resumo 🎉</button>
-    </div>
-  `;
-  const grid = document.getElementById('solGrid');
-  SOLUTIONS.forEach(s=>{
-    const div = document.createElement('div');
-    div.className = 'opt wide' + (emoState.solution===s.label ? ' selected':'');
-    div.innerHTML = `<span class="emoji">${s.emoji}</span><span>${s.label}</span>`;
-    div.onclick = ()=>{
-      playClickSound();
-      emoState.solution = s.label;
-      document.getElementById('solCustom').value='';
-      emoState.solutionCustom='';
-      renderSolutionStep();
-    };
-    grid.appendChild(div);
-  });
-  document.getElementById('solCustom').oninput = (e)=>{
-    emoState.solutionCustom = e.target.value;
-    if(e.target.value.trim()) emoState.solution = null;
-  };
-  document.getElementById('backBtn').onclick = ()=>{ emoStep=1; renderEmocaoStep(); };
-  document.getElementById('nextBtn').onclick = async ()=>{ await saveEmoEntry(); emoStep=3; renderEmocaoStep(); };
-  parseEmoji();
-}
-
-async function saveEmoEntry(){
+async function saveEmoEntry(emo){
   const today = new Date();
   const dateKey = today.toISOString().slice(0,10);
-  const emo = EMOTIONS.find(e=>e.id===emoState.emotion);
   const entry = {
     date: dateKey,
     displayDate: today.toLocaleDateString('pt-BR', {weekday:'long', day:'2-digit', month:'long'}),
     emotionEmoji: emo.emoji,
     emotionLabel: emo.label,
-    reaction: emoState.reaction || emoState.reactionCustom || '—',
-    solution: emoState.solution || emoState.solutionCustom || '—',
   };
-  await store.set('emo-entry:' + dateKey + ':' + Date.now(), JSON.stringify(entry));
+  await store.set('emo-entry:' + dateKey, JSON.stringify(entry));
   cloudSyncEmocao(entry);
 }
 
-function renderEmoSummaryStep(){
-  const emo = EMOTIONS.find(e=>e.id===emoState.emotion);
-  document.getElementById('subheader').textContent = 'Muito bem! 🎉';
-  setMascotMood(emoState.emotion);
-  const cardArea = document.getElementById('cardArea');
-  cardArea.innerHTML = `
-    <h2 class="step-title">Resumo do seu dia</h2>
-    <div class="summary-line"><span class="label">Senti</span><span class="val">${emo.emoji} ${emo.label}</span></div>
-    <div class="summary-line"><span class="label">Eu fiz</span><span class="val">${emoState.reaction || emoState.reactionCustom}</span></div>
-    <div class="summary-line"><span class="label">Da próxima vez</span><span class="val">${emoState.solution || emoState.solutionCustom}</span></div>
-    <p class="praise-banner">Cada emoção é bem-vinda. Aprender a lidar com elas é uma superpotência! 💪</p>
-    <div class="nav">
-      <button class="btn btn-ghost" id="diaryBtn">📖 Ver diário</button>
-      <button class="btn btn-primary" id="restartBtn">Registrar de novo 🔄</button>
-    </div>
-  `;
-  document.getElementById('restartBtn').onclick = ()=>{ resetEmoState(); renderEmocaoStep(); };
-  document.getElementById('diaryBtn').onclick = renderEmoDiary;
-  parseEmoji();
-}
-
-async function renderEmoDiary(){
-  document.getElementById('subheader').textContent = 'Seu diário das emoções';
+function renderEmocaoStep(){
+  document.getElementById('subheader').textContent = 'Como você se sentiu hoje?';
   setMascotMood(null);
   const cardArea = document.getElementById('cardArea');
-  cardArea.innerHTML = `<h2 class="step-title">📖 Meu diário</h2><div id="diaryList"><p class="empty">Carregando...</p></div>
-    <div class="nav"><button class="btn btn-primary" id="backToEmoBtn">Voltar</button></div>`;
-  document.getElementById('backToEmoBtn').onclick = ()=>{ resetEmoState(); renderEmocaoStep(); };
+  cardArea.innerHTML = `
+    <h2 class="step-title">Escolha a carinha de hoje 🌈</h2>
+    <p class="step-sub">Toque na emoção que mais combina com o seu dia</p>
+    <div class="grid" id="emoGrid"></div>
+    <div class="nav">
+      <button class="btn btn-ghost" id="backToListBtn2">⟲ Voltar</button>
+      <span></span>
+    </div>
+  `;
+  const grid = document.getElementById('emoGrid');
+  EMOTIONS.forEach(e=>{
+    const div = document.createElement('div');
+    div.className = 'opt';
+    div.innerHTML = `<span class="emoji">${e.emoji}</span><span>${e.label}</span>`;
+    div.onclick = async ()=>{
+      playClickSound();
+      setMascotMood(e.id);
+      await saveEmoEntry(e);
+      speak(`Você se sentiu ${e.label.toLowerCase()} hoje!`);
+      renderEmoThanks(e);
+    };
+    grid.appendChild(div);
+  });
+  document.getElementById('backToListBtn2').onclick = ()=>{ rotinaView = 'lista'; renderRotina(); };
   parseEmoji();
-  const listEl = document.getElementById('diaryList');
-  try{
-    const keys = await store.list('emo-entry:');
-    if(keys.length===0){
-      listEl.innerHTML = '<p class="empty">Ainda não há registros. Registre como foi seu dia! 🌟</p>';
-      return;
-    }
-    const entries = [];
-    for(const k of keys){
-      const raw = await store.get(k);
-      if(raw){ try{ entries.push(JSON.parse(raw)); }catch(e){} }
-    }
-    entries.sort((a,b)=> b.date.localeCompare(a.date));
-    listEl.innerHTML = entries.map(en => `
-      <div class="diary-entry">
-        <div class="date">${en.emotionEmoji} ${en.displayDate.charAt(0).toUpperCase()+en.displayDate.slice(1)}</div>
-        <div class="row"><b>Senti:</b> ${en.emotionLabel}</div>
-        <div class="row"><b>Fiz:</b> ${en.reaction}</div>
-        <div class="row"><b>Próxima vez:</b> ${en.solution}</div>
-      </div>
-    `).join('');
-  }catch(err){
-    listEl.innerHTML = '<p class="empty">Não consegui carregar o diário agora.</p>';
-  }finally{
-    parseEmoji();
-  }
 }
 
-function renderEmocaoStep(){
-  if(emoStep===0) renderEmotionStep();
-  else if(emoStep===1) renderReactionStep();
-  else if(emoStep===2) renderSolutionStep();
-  else renderEmoSummaryStep();
-}
-
-function renderEmocao(){
-  resetEmoState();
-  renderEmocaoStep();
+function renderEmoThanks(emo){
+  document.getElementById('subheader').textContent = 'Até amanhã! 🌟';
+  setMascotMood(emo.id);
+  const cardArea = document.getElementById('cardArea');
+  cardArea.innerHTML = `
+    <h2 class="step-title">Valeu por contar! ${emo.emoji}</h2>
+    <p class="step-sub">Você sentiu ${emo.label.toLowerCase()} hoje. Até a próxima rotina!</p>
+    <div class="nav">
+      <button class="btn btn-primary" id="backToListBtn3" style="width:100%">Voltar à rotina</button>
+    </div>
+  `;
+  document.getElementById('backToListBtn3').onclick = ()=>{ rotinaView = 'lista'; renderRotina(); };
+  parseEmoji();
 }
 
 /* ---------- TROFÉUS ---------- */
@@ -3765,9 +3685,7 @@ let currentTab = 'rotina';
 function setTab(tab){
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
-  if(tab==='rotina') renderRotina();
-  else if(tab==='quebra') renderQuebra();
-  else if(tab==='emocao') renderEmocao();
+  if(tab==='rotina'){ rotinaView = 'lista'; renderRotina(); }
   else if(tab==='trofeus') renderTrofeus();
   else if(tab==='perfil') renderPerfil();
 }
