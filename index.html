@@ -393,7 +393,7 @@
   <div class="modal-card">
     <div class="modal-emoji">🎉</div>
     <h2>Parabéns!</h2>
-    <p>Você montou o quebra-cabeça! Ganhou mais uma estrela ⭐</p>
+    <p id="winModalMsg">Você montou o quebra-cabeça! Ganhou mais uma estrela ⭐</p>
     <button class="btn btn-primary" id="modalCloseBtn">Continuar jogando</button>
   </div>
 </div>
@@ -2877,9 +2877,15 @@ let ttsVoice = null;
 function pickTtsVoice(){
   if(!window.speechSynthesis) return;
   const voices = speechSynthesis.getVoices();
-  ttsVoice = voices.find(v => /pt(-|_)?br/i.test(v.lang) && /female|mulher|maria|luciana|joana|francisca/i.test(v.name))
-    || voices.find(v => /^pt/i.test(v.lang))
-    || null;
+  const pt = voices.filter(v => /^pt/i.test(v.lang));
+  const isFemaleName = v => /female|mulher|maria|luciana|joana|francisca|camila|vitoria|vitória/i.test(v.name);
+  // vozes "não locais" usam processamento em nuvem do aparelho e soam bem mais naturais
+  ttsVoice =
+    pt.find(v => v.localService === false && isFemaleName(v)) ||
+    pt.find(v => v.localService === false) ||
+    pt.find(v => isFemaleName(v)) ||
+    pt[0] ||
+    null;
 }
 if(window.speechSynthesis){
   pickTtsVoice();
@@ -2893,7 +2899,7 @@ function speak(text){
     u.lang = 'pt-BR';
     if(ttsVoice) u.voice = ttsVoice;
     u.rate = 1;
-    u.pitch = 1.6;
+    u.pitch = 1.2;
     speechSynthesis.speak(u);
   }catch(e){}
 }
@@ -3315,17 +3321,18 @@ async function pickTile(slot){
   if(isSolved(order)){
     solved = true;
     const wasAlreadyDone = !!done[activeItemId];
+    let dayComplete = false;
     if(!wasAlreadyDone){
       await completeItem(activeItemId);
       await addStar();
       puzzlesSolvedTotal += 1;
       await store.set('quebra:resolvidos:total', String(puzzlesSolvedTotal));
       cloudSyncProfile();
+      dayComplete = allItemsFlat().every(i => done[i.id]);
     }
     renderItemPuzzle();
     triggerConfetti();
-    showWinModal();
-    speak('Parabéns! Você conseguiu!');
+    showWinModal(dayComplete);
     return;
   }
   renderItemPuzzle();
@@ -3349,9 +3356,25 @@ function triggerConfetti(){
   setTimeout(()=>{ container.innerHTML = ''; }, 4200);
 }
 
-function showWinModal(){ document.getElementById('winModal').classList.add('show'); }
+function showWinModal(dayComplete){
+  const modal = document.getElementById('winModal');
+  const msg = document.getElementById('winModalMsg');
+  const btn = document.getElementById('modalCloseBtn');
+  if(dayComplete){
+    msg.textContent = 'Você terminou toda a sua rotina! Qual foi sua emoção hoje?';
+    btn.textContent = '🙂 Qual sua emoção?';
+    btn.onclick = ()=>{ hideWinModal(); rotinaView = 'emocao'; renderEmocaoStep(); };
+    speak('Parabéns! Você terminou toda a sua rotina! Qual foi sua emoção hoje?');
+  }else{
+    msg.textContent = 'Você montou o quebra-cabeça! Ganhou mais uma estrela ⭐';
+    btn.textContent = 'Continuar jogando';
+    btn.onclick = hideWinModal;
+    speak('Parabéns! Você conseguiu!');
+  }
+  modal.classList.add('show');
+  parseEmoji();
+}
 function hideWinModal(){ document.getElementById('winModal').classList.remove('show'); }
-document.getElementById('modalCloseBtn').onclick = hideWinModal;
 
 function renderItemPuzzle(){
   const item = findItemById(activeItemId);
