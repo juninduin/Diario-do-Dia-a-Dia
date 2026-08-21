@@ -266,6 +266,12 @@
   .btn-primary{ background:var(--coral); color:white; flex:1; }
   .btn-ghost{ background:#F0EDFB; color:var(--plum-soft); font-weight:700; flex:1; }
   .btn-danger{ background:#FFE3E3; color:#D64545; font-weight:700; }
+  .btn-switch-user{
+    background:linear-gradient(135deg, #FFD166, #FF9F5A);
+    color:var(--ink); font-weight:800;
+    border:3px solid #fff;
+    box-shadow:0 8px 18px rgba(255,159,90,0.45);
+  }
   input[type=file]{ display:none; }
 
   /* EMOÇÃO */
@@ -3643,6 +3649,8 @@ function renderPerfil(){
     <h2 class="step-title">Meu perfil ✨</h2>
     <p class="step-sub">Personalize como quiser</p>
 
+    <button class="btn btn-switch-user" id="switchStudentBtn" style="width:100%; margin-bottom:20px;">🔄 Trocar de aluno</button>
+
     <label class="field-label">Apelido</label>
     <input type="text" id="pfNome" value="${profileName||''}" maxlength="30" placeholder="Seu apelido">
 
@@ -3666,8 +3674,6 @@ function renderPerfil(){
       <button class="btn btn-primary" id="saveProfileBtn" style="width:100%">💾 Salvar perfil</button>
     </div>
     <p class="empty" id="savedMsg" style="display:none;">Perfil salvo! 🎉</p>
-
-    <button class="btn btn-ghost" id="switchStudentBtn" style="width:100%; margin-top:14px;">🔄 Trocar de aluno</button>
 
     <div class="qr-box" id="qrBox"></div>
 
