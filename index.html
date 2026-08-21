@@ -2904,6 +2904,16 @@ function speak(text){
   }catch(e){}
 }
 
+const GREETINGS = [
+  (nome)=> `Oi, ${nome}! Vamos jogar!`,
+  (nome)=> `Que bom te ver, ${nome}! Vamos começar a diversão!`,
+  (nome)=> `Vamos lá, ${nome}! Hoje vai ser um dia demais!`,
+  (nome)=> `Oba, chegou a hora, ${nome}! Vamos brincar juntos!`,
+];
+function pickGreeting(nome){
+  return GREETINGS[Math.floor(Math.random()*GREETINGS.length)](nome);
+}
+
 /* ---------- PERFIL (nome) ---------- */
 let profileName = null;
 
@@ -2939,6 +2949,7 @@ function renderOnboarding(){
     await store.set('perfil:nome', val);
     cloudSyncProfile();
     playStartSound();
+    speak(pickGreeting(val));
     cardArea.classList.remove('cover-card');
     document.body.classList.remove('cover-mode');
     updateGreeting();
